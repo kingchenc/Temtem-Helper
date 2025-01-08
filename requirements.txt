@@ -1,0 +1,8 @@
+pyautogui==0.9.54
+pywin32==306
+Pillow==10.2.0
+numpy==1.26.4
+opencv-python==4.9.0.80
+mss==9.0.1
+PyQt5==5.15.10
+send2trash==1.8.0 
