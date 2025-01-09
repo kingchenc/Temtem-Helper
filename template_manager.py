@@ -15,6 +15,7 @@ from PyQt5.QtGui import QPixmap, QImage, QFont
 import sys
 import win32api
 import json
+from config_manager import ConfigManager
 
 
 class TemplateManager:
@@ -23,6 +24,9 @@ class TemplateManager:
         self.img_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'img')
         self._sct = None  # MSS instance for screenshots
         self.stdout = stdout or sys.__stdout__  # Use custom stdout if provided, otherwise use system stdout
+        
+        # Initialize config manager
+        self.config = ConfigManager()
         
     def log(self, message):
         """Writes a message to stdout"""
@@ -737,30 +741,14 @@ Returns:
 
     def get_required_template_types(self):
         """Loads the required template types from the config"""
-        try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-                # If no required_templates in config, use default list
-                return config.get('required_templates', ['map', 'run', 'bag', 'kill', 'chose', 'overload'])
-        except (FileNotFoundError, json.JSONDecodeError):
-            # On error or missing config, use default list
-            return ['map', 'run', 'bag', 'kill', 'chose', 'overload']
+        # Get required templates from config or use default list
+        return self.config.get('required_templates', ['map', 'run', 'bag', 'kill', 'chose', 'overload'])
 
     def set_required_template_types(self, types):
         """Saves the required template types in the config"""
         try:
-            config = {}
-            try:
-                with open('config.json', 'r') as f:
-                    config = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
-                pass
-                
-            config['required_templates'] = list(types)  # Convert to list for JSON
-            
-            with open('config.json', 'w') as f:
-                json.dump(config, f, indent=4)
-                
+            # Save required templates with save=True
+            self.config.set('required_templates', list(types), save=True)
             return True
         except Exception as e:
             print(f"Error saving required template types: {e}")

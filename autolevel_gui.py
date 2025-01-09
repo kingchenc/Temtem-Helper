@@ -23,6 +23,7 @@ class AutoLevelGUI(QMainWindow):
         self.start_time = None
         self.first_start_time = None  # Stores the very first start time
         self.total_runtime = 0  # Stores the total runtime
+        self.loading_movement_mode = False  # Flag to block events during loading
         self.bot = AutoLeveler()
         self.bot.gui = self  # Set GUI reference in bot
         self.images = {}  # Dictionary to store loaded images
@@ -86,7 +87,14 @@ class AutoLevelGUI(QMainWindow):
             print(f"Error setting icon: {str(e)}")
         
         self.initUI()
+        
+        # Load saved settings
         self.load_movement_mode()  # Load saved movement direction
+        
+        # Set active profile in GUI
+        active_profile = self.bot.config.get_active_profile()
+        if active_profile:
+            self.profile_label.setText(active_profile)
         
         # Timer for auto-attach at startup
         QTimer.singleShot(0, self.try_auto_attach)
@@ -695,17 +703,8 @@ class AutoLevelGUI(QMainWindow):
 
     def save_temtem_path(self, path):
         """Saves Temtem path to config"""
-        config = {}
-        try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
-        
-        config['temtem_path'] = path
-        with open('config.json', 'w') as f:
-            json.dump(config, f, indent=4)
-
+        self.bot.config.save_temtem_path(path)
+            
     def launch_temtem(self):
         """Launches Temtem"""
         temtem_path = self.get_temtem_path()
@@ -1085,40 +1084,28 @@ class AutoLevelGUI(QMainWindow):
             self.set_status_text("Temtem not found")
 
     def load_movement_mode(self):
-        """Loads the saved movement direction from config"""
+        """Loads the movement mode from config"""
+        self.loading_movement_mode = True  # Block events
         try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-                mode = config.get('movement_mode', 'both')  # Default: both
-                if mode == 'ad':
-                    self.move_ad.setChecked(True)
-                elif mode == 'sw':
-                    self.move_sw.setChecked(True)
-                else:
-                    self.move_both.setChecked(True)
-                self.bot.set_movement_mode(mode)
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.move_both.setChecked(True)
-            self.bot.set_movement_mode('both')
+            mode = self.bot.config.get('movement_mode', 'both')
             
-    def save_movement_mode(self, mode):
-        """Saves the movement direction to config"""
-        config = {}
-        try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
-            
-        config['movement_mode'] = mode
-        with open('config.json', 'w') as f:
-            json.dump(config, f, indent=4)
+            # Update radio buttons without triggering save
+            self.movement_mode = mode
+            if mode == 'ad':
+                self.move_ad.setChecked(True)
+            elif mode == 'sw':
+                self.move_sw.setChecked(True)
+            else:
+                self.move_both.setChecked(True)
+        finally:
+            self.loading_movement_mode = False  # Always unblock events
             
     def on_movement_changed(self, mode):
         """Called when movement direction changes"""
-        if self.bot:
-            self.bot.set_movement_mode(mode)
-            self.save_movement_mode(mode)
+        if self.loading_movement_mode:  # Skip during loading
+            return
+        if self.bot and mode != self.bot.movement_mode:
+            self.bot.set_movement_mode(mode)  # This already saves the config
 
     def write(self, text):
         """Called when print is used"""
@@ -1180,22 +1167,7 @@ class AutoLevelGUI(QMainWindow):
             
     def save_highlight_setting(self, show_highlight):
         """Saves the setting for the green circle to config"""
-        config = {}
-        try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
-            
-        config['show_highlight'] = show_highlight
-        with open('config.json', 'w') as f:
-            json.dump(config, f, indent=4)
-            
-    def on_highlight_changed(self, state):
-        """Called when highlight setting changes"""
-        show_highlight = bool(state)
-        self.save_highlight_setting(show_highlight)
-        self.bot.set_highlight_enabled(show_highlight)
+        self.bot.config.save_highlight_setting(show_highlight)
 
     def show_settings(self):
         """Opens the settings window"""
@@ -1270,6 +1242,12 @@ class AutoLevelGUI(QMainWindow):
     def get_log_entries(self):
         """Returns the current log entries"""
         return self.log_entries.copy()  # Return copy to ensure thread safety
+
+    def on_highlight_changed(self, state):
+        """Called when highlight setting changes"""
+        show_highlight = bool(state)
+        self.save_highlight_setting(show_highlight)
+        self.bot.set_highlight_enabled(show_highlight)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

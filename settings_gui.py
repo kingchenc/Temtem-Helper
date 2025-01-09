@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from template_manager import TemplateManager
+from config_manager import ConfigManager
 
 class SettingsGUI(QWidget):
     def __init__(self, parent=None):
@@ -32,6 +33,9 @@ class SettingsGUI(QWidget):
         # Use parent's template manager if available, otherwise create new one
         self.template_manager = self.parent.bot.template_manager if self.parent and hasattr(self.parent.bot, 'template_manager') else TemplateManager()
         
+        # Initialize config manager
+        self.config = ConfigManager()
+        
         # Set window properties
         self.setFixedSize(250, 800)  # Increase height for additional settings
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -39,8 +43,12 @@ class SettingsGUI(QWidget):
         
         self.log_paused = False  # Status for log pause
         self.paused_logs = []  # Separate list for paused logs
-        self.current_profile = "Standard"  # Current profile
+        self.current_profile = self.config.get_active_profile()  # Current profile
         self.selected_template_type = None  # Stores the selected template type
+        
+        # Initialize threshold sliders dictionary
+        self.threshold_sliders = {}
+        
         self.initUI()
         self.load_settings()
         self.drag_pos = None
@@ -221,8 +229,12 @@ class SettingsGUI(QWidget):
         profile_row_layout.setContentsMargins(0, 0, 0, 0)
         profile_row_layout.setSpacing(2)  # Reduced spacing
         
-        profile_label = QLabel("Profile:")
-        profile_label.setFont(title_font)
+        # Create profile label
+        self.profile_label = QLabel(self.current_profile)
+        self.profile_label.setFont(title_font)
+        profile_row_layout.addWidget(self.profile_label)
+        
+        # Profile combo box
         self.profile_combo = QComboBox()
         self.profile_combo.setFont(value_font)
         self.profile_combo.setFixedHeight(20)
@@ -235,43 +247,10 @@ class SettingsGUI(QWidget):
                 padding: 2px 5px;
                 min-height: 20px;
             }
-            QComboBox:hover {
-                background-color: #4d4d4d;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 20px;
-                padding: 0px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border: none;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2b2b2b;
-                color: #e0e0e0;
-                selection-background-color: #4d4d4d;
-                selection-color: #e0e0e0;
-                border: 1px solid #3d3d3d;
-                padding: 2px;
-                margin: 0px;
-                outline: 0px;
-                min-width: 100px;
-            }
-            QComboBox QAbstractItemView::item {
-                min-height: 20px;
-                padding: 2px 5px;
-            }
-            QComboBox QAbstractItemView::item:hover {
-                background-color: #4d4d4d;
-            }
         """)
-        self.profile_combo.setMaxVisibleItems(5)  # Limits the number of visible items
-        self.profile_combo.view().window().setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)  # Prevents window shifting
         self.profile_combo.currentTextChanged.connect(self.load_profile)
-        
-        profile_row_layout.addWidget(profile_label)
         profile_row_layout.addWidget(self.profile_combo)
+        
         profile_layout.addWidget(profile_row)
         
         # Profile buttons row
@@ -371,6 +350,7 @@ class SettingsGUI(QWidget):
         run_layout.addWidget(self.run_spin)
         run_layout.addWidget(run_test)
         threshold_layout.addWidget(run_row)
+        self.threshold_sliders['run'] = self.run_spin
 
         # Bag threshold
         bag_row = QWidget()
@@ -393,6 +373,7 @@ class SettingsGUI(QWidget):
         bag_layout.addWidget(self.bag_spin)
         bag_layout.addWidget(bag_test)
         threshold_layout.addWidget(bag_row)
+        self.threshold_sliders['bag'] = self.bag_spin
 
         # Kill threshold
         kill_row = QWidget()
@@ -415,6 +396,7 @@ class SettingsGUI(QWidget):
         kill_layout.addWidget(self.kill_spin)
         kill_layout.addWidget(kill_test)
         threshold_layout.addWidget(kill_row)
+        self.threshold_sliders['kill'] = self.kill_spin
 
         # Chose threshold
         chose_row = QWidget()
@@ -437,6 +419,7 @@ class SettingsGUI(QWidget):
         chose_layout.addWidget(self.chose_spin)
         chose_layout.addWidget(chose_test)
         threshold_layout.addWidget(chose_row)
+        self.threshold_sliders['chose'] = self.chose_spin
 
         # Overload threshold
         overload_row = QWidget()
@@ -459,6 +442,7 @@ class SettingsGUI(QWidget):
         overload_layout.addWidget(self.overload_spin)
         overload_layout.addWidget(overload_test)
         threshold_layout.addWidget(overload_row)
+        self.threshold_sliders['overload'] = self.overload_spin
 
         # Died threshold
         died_row = QWidget()
@@ -481,6 +465,7 @@ class SettingsGUI(QWidget):
         died_layout.addWidget(self.died_spin)
         died_layout.addWidget(died_test)
         threshold_layout.addWidget(died_row)
+        self.threshold_sliders['died'] = self.died_spin
 
         # Map threshold
         map_row = QWidget()
@@ -503,6 +488,7 @@ class SettingsGUI(QWidget):
         map_layout.addWidget(self.map_spin)
         map_layout.addWidget(map_test)
         threshold_layout.addWidget(map_row)
+        self.threshold_sliders['map'] = self.map_spin
         
         # Save button
         save_button = QPushButton("Save")
@@ -568,101 +554,34 @@ class SettingsGUI(QWidget):
         title_bar.mouseMoveEvent = self.mouseMoveEvent
         
     def load_settings(self):
-        """Loads the settings from the config"""
-        # Default profile settings
-        default_profile = {
-                        'show_highlight': True,
-                        'highlight_duration': 750,
-                        'thresholds': {
-                            'run': 0.6,
-                            'bag': 0.6,
-                            'kill': 0.75,
-                            'chose': 0.7,
-                            'overload': 0.7,
-                            'died': 0.8,
-                            'map': 0.95
-                        }
-                    }
-
-        try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-                
-                # Get profiles, create default if not exists
-                profiles = config.get('profiles', {})
-                config_updated = False
-                
-                if "Standard" not in profiles:
-                    profiles["Standard"] = default_profile
-                    config_updated = True
-                
-                # Ensure active_profile exists and is set to Standard if profiles were just created
-                if 'active_profile' not in config or config_updated:
-                    config['active_profile'] = "Standard"
-                    config_updated = True
-                
-                # Get active profile, default to "Standard" if not set
-                active_profile = config.get('active_profile', "Standard")
-                
-                # Set profiles in combo box
-                self.profile_combo.clear()
-                self.profile_combo.addItems(profiles.keys())
-                
-                # Set last active profile
-                self.current_profile = active_profile
-                index = self.profile_combo.findText(active_profile)
-                if index >= 0:
-                    self.profile_combo.setCurrentIndex(index)
-                
-                # Get active profile settings, fallback to Standard or default
-                profile = profiles.get(active_profile, profiles.get("Standard", default_profile))
-                
-                # Load values of the active profile
-                self.highlight_checkbox.setChecked(profile.get('show_highlight', True))
-                self.highlight_duration_spin.setValue(profile.get('highlight_duration', 750))
-                
-                # Load thresholds
-                thresholds = profile.get('thresholds', default_profile['thresholds'])
-                self.run_spin.setValue(thresholds.get('run', 0.6))
-                self.bag_spin.setValue(thresholds.get('bag', 0.6))
-                self.kill_spin.setValue(thresholds.get('kill', 0.75))
-                self.chose_spin.setValue(thresholds.get('chose', 0.7))
-                self.overload_spin.setValue(thresholds.get('overload', 0.7))
-                self.died_spin.setValue(thresholds.get('died', 0.8))
-                self.map_spin.setValue(thresholds.get('map', 0.95))
-                
-                # Save config if we had to create the Standard profile or set active_profile
-                if config_updated:
-                    config['profiles'] = profiles
-                    with open('config.json', 'w') as f:
-                        json.dump(config, f, indent=4)
-                
-        except (FileNotFoundError, json.JSONDecodeError):
-            # If no config exists, use default values and create config
-            config = {
-                'active_profile': "Standard",
-                'profiles': {
-                    "Standard": default_profile
-                }
-            }
-            with open('config.json', 'w') as f:
-                json.dump(config, f, indent=4)
-                
-            # Set default values in UI
-            self.highlight_checkbox.setChecked(True)
-            self.highlight_duration_spin.setValue(750)
-            self.run_spin.setValue(0.6)
-            self.bag_spin.setValue(0.6)
-            self.kill_spin.setValue(0.75)
-            self.chose_spin.setValue(0.7)
-            self.overload_spin.setValue(0.7)
-            self.died_spin.setValue(0.8)
-            self.map_spin.setValue(0.95)
+        """Load settings from config"""
+        # Ensure Default profile exists
+        self.config.ensure_default_profile()
+        
+        # Get active profile
+        self.current_profile = self.config.get_active_profile()
+        
+        # Load profile data
+        profile = self.config.get_profile()
+        if profile:
+            # Load thresholds
+            thresholds = profile.get('thresholds', {})
+            for name, value in thresholds.items():
+                if name in self.threshold_sliders:
+                    self.threshold_sliders[name].setValue(value)
+                    
+            # Load highlight settings
+            self.highlight_enabled = profile.get('show_highlight', True)
+            self.highlight_duration = profile.get('highlight_duration', 750)
             
-            # Create Standard profile in combo box
-            self.profile_combo.clear()
-            self.profile_combo.addItem("Standard")
-            self.current_profile = "Standard"
+            # Update UI
+            self.highlight_checkbox.setChecked(self.highlight_enabled)
+            self.highlight_duration_spin.setValue(self.highlight_duration)
+            
+        # Update profile display
+        self.profile_label.setText(self.current_profile)
+        self.update_profile_combo()
+    
     def save_settings(self):
         """Saves the settings"""
         if self.parent and hasattr(self.parent.bot, 'set_thresholds'):
@@ -678,80 +597,70 @@ class SettingsGUI(QWidget):
             }
             self.parent.bot.set_thresholds(thresholds)
             
-            # Load existing config
-            config = {}
-            try:
-                with open('config.json', 'r') as f:
-                    config = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
-                pass
-            
-            # Update or create profiles
-            if 'profiles' not in config:
-                config['profiles'] = {}
-                
-            # Update current profile
-            config['profiles'][self.current_profile] = {
+            # Update profile data
+            profile_data = {
                 'show_highlight': self.highlight_checkbox.isChecked(),
                 'highlight_duration': self.highlight_duration_spin.value(),
                 'thresholds': thresholds
             }
             
-            # Set active profile
-            config['active_profile'] = self.current_profile
+            # Save profile with save=True, da dies eine explizite Speicheraktion ist
+            self.config.set_profile(self.current_profile, profile_data, save=True)
             
-            # Update profile label in main window
+            # Set active profile using the proper method
+            self.config.set_active_profile(self.current_profile)
+            
+            # Update profile labels
+            self.profile_label.setText(self.current_profile)
             if self.parent and hasattr(self.parent, 'profile_label'):
                 self.parent.profile_label.setText(self.current_profile)
             
-            # Save config
-            with open('config.json', 'w') as f:
-                json.dump(config, f, indent=4)
-                
             # Update bot
             self.parent.bot.set_highlight_enabled(self.highlight_checkbox.isChecked())
             self.parent.bot.set_highlight_duration(self.highlight_duration_spin.value())
-
+            
             # Log message for saving
             if hasattr(self.parent, 'add_log_entry'):
                 self.parent.add_log_entry(f"Settings for profile '{self.current_profile}' saved")
+    
     def load_profile(self, profile_name):
         """Loads a specific profile"""
         if not profile_name:
             return
             
-        try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-                profiles = config.get('profiles', {})
-                profile = profiles.get(profile_name)
-                
-                if profile:
-                    self.current_profile = profile_name
-                    
-                    # Update profile label in main window immediately
-                    if self.parent and hasattr(self.parent, 'profile_label'):
-                        self.parent.profile_label.setText(profile_name)
-                    
-                    # Load profile values
-                    self.highlight_checkbox.setChecked(profile.get('show_highlight', True))
-                    self.highlight_duration_spin.setValue(profile.get('highlight_duration', 750))
-                    
-                    # Load thresholds
-                    thresholds = profile.get('thresholds', {})
-                    self.run_spin.setValue(thresholds.get('run', 0.6))
-                    self.bag_spin.setValue(thresholds.get('bag', 0.6))
-                    self.kill_spin.setValue(thresholds.get('kill', 0.75))
-                    self.chose_spin.setValue(thresholds.get('chose', 0.7))
-                    self.overload_spin.setValue(thresholds.get('overload', 0.7))
-                    self.died_spin.setValue(thresholds.get('died', 0.8))
-                    self.map_spin.setValue(thresholds.get('map', 0.95))
-                    
-                    # Save and activate the profile
-                    self.save_settings()
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        # Get profile data
+        profile = self.config.get_profile(profile_name)
+        
+        if profile:
+            self.current_profile = profile_name
             
+            # Update profile label in main window immediately
+            if self.parent and hasattr(self.parent, 'profile_label'):
+                self.parent.profile_label.setText(profile_name)
+            
+            # Load profile values
+            self.highlight_checkbox.setChecked(profile.get('show_highlight', True))
+            self.highlight_duration_spin.setValue(profile.get('highlight_duration', 750))
+            
+            # Load thresholds
+            thresholds = profile.get('thresholds', {})
+            self.run_spin.setValue(thresholds.get('run', 0.6))
+            self.bag_spin.setValue(thresholds.get('bag', 0.6))
+            self.kill_spin.setValue(thresholds.get('kill', 0.75))
+            self.chose_spin.setValue(thresholds.get('chose', 0.7))
+            self.overload_spin.setValue(thresholds.get('overload', 0.7))
+            self.died_spin.setValue(thresholds.get('died', 0.8))
+            self.map_spin.setValue(thresholds.get('map', 0.95))
+            
+            # Update bot settings without saving
+            if self.parent and hasattr(self.parent.bot, 'set_thresholds'):
+                self.parent.bot.thresholds = thresholds.copy()  # Update thresholds directly
+                self.parent.bot.highlight_enabled = profile.get('show_highlight', True)
+                self.parent.bot.highlight_duration = profile.get('highlight_duration', 750)
+            
+            # Set as active profile using the proper method
+            self.config.set_active_profile(profile_name)
+    
     def create_new_profile(self):
         """Creates a new profile"""
         # Custom input dialog in dark mode
@@ -974,13 +883,17 @@ class SettingsGUI(QWidget):
         
         # Execute dialog (replaces show())
         dialog.exec_()
+    
     def delete_profile(self):
-        """Deletes the current profile"""
-        if self.current_profile == "Standard":
+        """Delete the current profile"""
+        if not self.current_profile:
+            return
+            
+        if self.current_profile == "Default":
             msg = QMessageBox(self)
-            msg.setWindowTitle("Error")
-            msg.setText("The standard profile cannot be deleted!")
             msg.setIcon(QMessageBox.Warning)
+            msg.setText("The default profile cannot be deleted!")
+            msg.setWindowTitle("Cannot Delete Profile")
             msg.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
             msg.setStyleSheet("""
                 QMessageBox {
@@ -1009,19 +922,17 @@ class SettingsGUI(QWidget):
                     background-color: #2d2d2d;
                 }
             """)
-            
             msg.show()
             self.ensure_dialog_visible(msg)
             msg.exec_()
             return
             
-        # Confirmation dialog
+        # Ask for confirmation
         msg = QMessageBox(self)
-        msg.setWindowTitle("Delete Profile")
-        msg.setText(f'Are you sure you want to delete the profile "{self.current_profile}"?')
         msg.setIcon(QMessageBox.Question)
+        msg.setText(f"Are you sure you want to delete the profile '{self.current_profile}'?")
+        msg.setWindowTitle("Delete Profile")
         msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        msg.setDefaultButton(QMessageBox.No)
         msg.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         msg.setStyleSheet("""
             QMessageBox {
@@ -1050,39 +961,16 @@ class SettingsGUI(QWidget):
                 background-color: #2d2d2d;
             }
         """)
-        
         msg.show()
         self.ensure_dialog_visible(msg)
-            
         if msg.exec_() == QMessageBox.Yes:
-            # Load config
-            try:
-                with open('config.json', 'r') as f:
-                    config = json.load(f)
-                    
-                # Delete profile
-                if 'profiles' in config and self.current_profile in config['profiles']:
-                    del config['profiles'][self.current_profile]
-                    
-                # Set standard profile as active
-                config['active_profile'] = "Standard"
-                
-                # Update profile label in main window immediately
-                if self.parent and hasattr(self.parent, 'profile_label'):
-                    self.parent.profile_label.setText("Standard")
-                
-                # Save config
-                with open('config.json', 'w') as f:
-                    json.dump(config, f, indent=4)
-                    
-                # Update UI
-                current_index = self.profile_combo.currentIndex()
-                self.profile_combo.removeItem(current_index)
-                self.profile_combo.setCurrentText("Standard")
-                self.load_profile("Standard")
-            except (FileNotFoundError, json.JSONDecodeError):
-                pass
-
+            # Delete profile
+            self.config.delete_profile(self.current_profile)
+            
+            # Switch to Default profile
+            self.profile_combo.setCurrentText("Default")
+            self.load_profile("Default")
+    
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.drag_pos = event.globalPos() - self.frameGeometry().topLeft()
@@ -1558,6 +1446,20 @@ class SettingsGUI(QWidget):
             
         # Move dialog to final position
         dialog.move(dialog_geometry.topLeft())
+
+    def update_profile_combo(self):
+        """Updates the profile combo box with all available profiles"""
+        # Get all profiles
+        profiles = self.config.get_all_profiles()
+        
+        # Update combo box
+        self.profile_combo.clear()
+        self.profile_combo.addItems(profiles.keys())
+        
+        # Set current profile
+        index = self.profile_combo.findText(self.current_profile)
+        if index >= 0:
+            self.profile_combo.setCurrentIndex(index)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

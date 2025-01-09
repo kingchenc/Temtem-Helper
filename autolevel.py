@@ -16,6 +16,7 @@ from PyQt5.QtCore import Qt, QTimer, QObject, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QColor
 import json
 import win32con
+from config_manager import ConfigManager
 
 class HighlightSignal(QObject):
     highlight = pyqtSignal(tuple)  # (x, y, w, h)
@@ -81,20 +82,25 @@ class AutoLeveler:
             'died': []
         }
         
-        # Default threshold values
-        self.thresholds = {
-            'run_bag': 0.6,      # Run/Bag button
-            'kill': 0.75,        # Kill buttons
-            'chose_overload': 0.7,  # Chose/Overload button
-            'died': 0.8,         # Death detection
-            'map': 0.95          # Map detection
-        }
-        
         # Initialize thread local storage
         self._thread_local = threading.local()
         
-        # Load threshold values from config
-        self.load_thresholds()
+        # Initialize config manager first
+        self.config = ConfigManager()
+        
+        # Initialize with values from config
+        self.thresholds = {}
+        profile = self.config.get_profile()
+        if profile:
+            self.thresholds = profile.get('thresholds', {}).copy()
+            self.highlight_enabled = profile.get('show_highlight', True)
+            self.highlight_duration = profile.get('highlight_duration', 750)
+        else:
+            self.highlight_enabled = True
+            self.highlight_duration = 750
+            
+        # Get movement mode directly from config without triggering save
+        self.movement_mode = self.config.get('movement_mode', 'both')
         
         # Rest of initialization
         self.last_state_change = time.time()
@@ -104,15 +110,12 @@ class AutoLeveler:
         self.attack_count = 0  # Counts how many times the current attack was used
         self.movement_direction = 0
         self.last_direction_change = time.time()
-        self.movement_mode = "both"
         self.pressed_keys = set()
         self.death_retry_count = 0
         
         # Highlight system
         self.highlight_signal = HighlightSignal()
         self.highlight_window = None
-        self.highlight_enabled = True
-        self.highlight_duration = 750  # Default: 750ms
         
         # Create debug folder
         try:
@@ -122,137 +125,75 @@ class AutoLeveler:
             print(msg)
             if hasattr(self, 'gui'):
                 self.gui.add_log_entry(msg)
-            
+                
+        # Load active profile settings
+        self.load_thresholds()
+        
     def load_thresholds(self):
         """Loads the threshold values from the config"""
-        # Default profile settings
-        default_profile = {
-            'show_highlight': True,
-            'highlight_duration': 750,
-            'thresholds': {
-                'run': 0.6,
-                'bag': 0.6,
-                'kill': 0.75,
-                'chose': 0.7,
-                'overload': 0.7,
-                'died': 0.8,
-                'map': 0.95
-            }
-        }
-
-        try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-                config_updated = False
-                
-                # Get profiles, create default if not exists
-                profiles = config.get('profiles', {})
-                if "Standard" not in profiles:
-                    profiles["Standard"] = default_profile
-                    config_updated = True
-                
-                # Ensure active_profile exists and is set to Standard if not set
-                if 'active_profile' not in config:
-                    config['active_profile'] = "Standard"
-                    config_updated = True
-                
-                # Get active profile settings, fallback to Standard or default
-                active_profile = config.get('active_profile', "Standard")
-                profile = profiles.get(active_profile, profiles.get("Standard", default_profile))
-                thresholds = profile.get('thresholds', default_profile['thresholds'])
-
-                # Handle legacy thresholds
-                if 'run_bag' in thresholds:
-                    run_bag_value = thresholds.pop('run_bag')
-                    thresholds['run'] = run_bag_value
-                    thresholds['bag'] = run_bag_value
-                    config_updated = True
-
-                if 'chose_overload' in thresholds:
-                    chose_overload_value = thresholds.pop('chose_overload')
-                    thresholds['chose'] = chose_overload_value
-                    thresholds['overload'] = chose_overload_value
-                    config_updated = True
-                
-                # Update thresholds from profile
-                self.thresholds = thresholds.copy()
-                        
-                # Set highlight settings from profile
-                self.highlight_enabled = profile.get('show_highlight', True)
-                self.highlight_duration = profile.get('highlight_duration', 750)
-                
-                # Update profile label in GUI if it exists
-                if hasattr(self, 'gui') and hasattr(self.gui, 'profile_label'):
-                    self.gui.profile_label.setText(active_profile)
-                
-                # Save config if we had to create the Standard profile or set active_profile
-                if config_updated:
-                    config['profiles'] = profiles
-                    with open('config.json', 'w') as f:
-                        json.dump(config, f, indent=4)
-                
-        except (FileNotFoundError, json.JSONDecodeError):
-            # If no config exists, use default values and create config
-            config = {
-                'active_profile': "Standard",
-                'profiles': {
-                    "Standard": default_profile
-                }
-            }
-            with open('config.json', 'w') as f:
-                json.dump(config, f, indent=4)
-            
-            # Set default thresholds
-            self.thresholds = default_profile['thresholds'].copy()
+        # Get active profile
+        profile = self.config.get_profile()
+        
+        if profile:
+            # Update thresholds from profile
+            self.thresholds = profile.get('thresholds', {}).copy()
+                    
+            # Set highlight settings from profile
+            self.highlight_enabled = profile.get('show_highlight', True)
+            self.highlight_duration = profile.get('highlight_duration', 750)
             
             # Update profile label in GUI if it exists
             if hasattr(self, 'gui') and hasattr(self.gui, 'profile_label'):
-                self.gui.profile_label.setText("Standard")
+                self.gui.profile_label.setText(self.config.get_active_profile())
 
     def save_thresholds(self):
-        """Speichert die Threshold Werte in der Config"""
-        config = {}
-        try:
-            with open('config.json', 'r') as f:
-                config = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
-            
-        # Get active profile, default to "Standard"
-        active_profile = config.get('active_profile', "Standard")
+        """Saves the threshold values to the config"""
+        # Get current profile
+        profile = self.config.get_profile()
         
-        # Ensure profiles exist
-        if 'profiles' not in config:
-            config['profiles'] = {
-                "Standard": {
-                    'show_highlight': True,
-                    'highlight_duration': 750,
-                    'thresholds': self.thresholds
-                }
+        # Only save if values actually changed
+        if (profile.get('show_highlight') != self.highlight_enabled or
+            profile.get('highlight_duration') != self.highlight_duration or
+            profile.get('thresholds') != self.thresholds):
+            
+            profile_data = {
+                'show_highlight': self.highlight_enabled,
+                'highlight_duration': self.highlight_duration,
+                'thresholds': self.thresholds.copy()
             }
-        
-        # Get or create profile
-        if active_profile not in config['profiles']:
-            config['profiles'][active_profile] = {
-                'show_highlight': True,
-                'highlight_duration': 750,
-                'thresholds': {}
-            }
-            
-        # Update thresholds in active profile
-        config['profiles'][active_profile]['thresholds'] = self.thresholds.copy()
-        
-        # Save config
-        with open('config.json', 'w') as f:
-            json.dump(config, f, indent=4)
-            
+            self.config.set_profile(self.config.get_active_profile(), profile_data, save=True)
+
     def set_thresholds(self, thresholds):
-        """Setzt neue Threshold Werte"""
+        """Sets new threshold values"""
         self.thresholds.update(thresholds)
         self.save_thresholds()
 
+    def set_movement_mode(self, mode):
+        """Sets the movement mode (ad/sw/both)"""
+        if self.movement_mode != mode:
+            self.movement_mode = mode
+            self.config.set('movement_mode', mode, save=True)
+
+    def set_highlight_enabled(self, enabled):
+        """Enables or disables the highlight system"""
+        self.highlight_enabled = enabled
+        if not enabled and self.highlight_window:
+            self.highlight_window.hide()
+        
+        # Save setting through config manager
+        self.config.save_highlight_setting(enabled)
+
+    def set_highlight_duration(self, duration):
+        """Sets the display duration of the highlight"""
+        self.highlight_duration = duration
+        if self.highlight_window:
+            self.highlight_window.hide_timer.setInterval(duration)
+        
+        # Save setting through config manager
+        self.config.save_highlight_duration(duration)
+
     def setup_highlight(self):
-        """Initialisiert das Highlight-System im Hauptthread"""
+        """Initializes the highlight system in the main thread"""
         app = QApplication.instance()
         if app and self.highlight_window is None:
             self.highlight_window = HighlightWindow()
@@ -262,7 +203,7 @@ class AutoLeveler:
             )
 
     def highlight_match(self, x, y, w, h):
-        """Zeigt einen grünen Kreis an der gefundenen Position"""
+        """Shows a green circle at the found position"""
         try:
             if not self.highlight_enabled:
                 return
@@ -935,9 +876,6 @@ class AutoLeveler:
         
         return False
            
-    def set_movement_mode(self, mode):
-        """Sets the movement mode (ad/sw/both)"""
-        self.movement_mode = mode
     def check_for_chose(self):
         """Checks if the chose button is visible"""
         if not self.running:
