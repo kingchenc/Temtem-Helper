@@ -4,7 +4,17 @@ A bot for automated leveling in Temtem, featuring a modern GUI and profile syste
 
 ![Bot Preview](combined_image.png)
 
-> **Important Language Note**: Some template images contain German text. If you use Temtem in a different language, you'll need to create new templates using the screenshot function for these text-based elements:
+## Important Notes
+
+> **Game Settings**  
+> The template images in the `img` folder are configured for these specific game settings:
+> - Window Resolution: 1360x768
+> - Quality: Low
+> - Texture: Low
+> - UI Scale: 100%
+
+> **Language Settings**  
+> Some template images contain German text. If you use Temtem in a different language, you'll need to create new templates for:
 > - Kill button ("kill")
 > - Choice dialog ("choose")
 > - Overload dialog ("overload")
@@ -12,15 +22,30 @@ A bot for automated leveling in Temtem, featuring a modern GUI and profile syste
 >
 > Other templates (like Battle UI buttons) use universal symbols and don't need to be changed.
 
-> **Note**: The `config.json` file is created automatically. If the Temtem game client is not running when trying to attach, you'll need to specify the Temtem executable path. This allows you to start Temtem directly through the bot if desired.
+> **Window Handling**  
+> - The bot briefly activates Temtem only when sending inputs
+> - Returns focus to your previous window automatically
+> - Inputs are exclusively sent to Temtem
+> - Allows you to use your PC while botting
+> - Full support for multi-monitor setups
 
-> **Contributing**: Feel free to make commits and make the bot better!
+> **Note**  
+> The `config.json` file is created automatically. If the Temtem game client is not running when trying to attach, you'll need to specify the Temtem executable path. This allows you to start Temtem directly through the bot if desired.
+
+> **Contributing**  
+> Feel free to make commits and make the bot better!
 
 ## Features
 
 - **Auto-Leveling**: Automatically handles battles and movement for efficient leveling
 - **Modern GUI**: Clean, dark-themed interface with real-time statistics
 - **Battle Detection**: Advanced image recognition for battle state detection
+- **Smart Window Focus**: 
+  - Briefly activates Temtem only when sending inputs
+  - Returns focus to your previous window automatically
+  - Inputs are exclusively sent to Temtem
+  - Allows you to use your PC while botting
+- **Multi-Monitor Support**: Full support for multi-monitor setups
 - **Configurable Movement**: Choose between horizontal (A/D), vertical (S/W), or both movement patterns
 - **Customizable Settings**: 
   - Multiple configuration profiles
@@ -39,7 +64,9 @@ A bot for automated leveling in Temtem, featuring a modern GUI and profile syste
 - **Real-time Monitoring**: Visual feedback with green circle highlighting for detected elements
 
 ### TODO
-- **Input Methods**: Currently using safe foreground clicks (Temtem window needs focus). Optional background clicks could be implemented but would risk detection by Unity's anti-cheat system - user's choice for future development
+- **Input Methods**: Currently using safe window focus for inputs. Optional background methods could be implemented but would risk detection
+- **Additional Languages**: Add more template sets for different game languages
+- **Auto-Update**: Implement automatic updates for template images when game UI changes
 
 ## Requirements
 
